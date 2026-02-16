@@ -19,12 +19,12 @@ TARGET_WIDTH = 2  # bytes -> 16-bit
 TARGET_CHANNELS = 2  # stereo
 
 # A conservative parameter prefix seen in the provided kits
-#  - 0x64,0x00,0x00,0x7F, then zeros, then a DWORD 0x00000040, then zeros before path
-# We don't yet lock every field's meaning; this template matches observed defaults
-PARAM_PREFIX = (b"\x64\x00\x00\x7F"  # level=?, pitch=?, pan/vel=?
-                + b"\x00" * 0x28
+#  - 0x64,0x00,0x00,0x7F, then zeros, then a DWORD 0x00000040, then zeros
+# In the actual file, these follow the path in each 281-byte entry.
+PARAM_SUFFIX = (b"\x64\x00\x00\x7F"  # level=?, pitch=?, pan/vel=?
+                + b"\x00" * 12
                 + struct.pack('<I', 0x40)
-                + b"\x00" * 0x10)
+                + b"\x00" * 8)
 
 
 def _read_wav_bytes(path: Path) -> bytes:
@@ -132,26 +132,30 @@ def _make_paths(title: str, names: list[str]) -> list[bytes]:
 
 
 def _build_ktdt(paths: list[bytes]) -> bytes:
-    buf = io.BytesIO()
+    # Each entry is 281 bytes. Path at offset 0, params at offset 256.
+    entry_size = 281
+    buf = bytearray(KTDT_SIZE)
     for i in range(15):
-        buf.write(PARAM_PREFIX)
-        buf.write(paths[i])
-    body = buf.getvalue()
-    if len(body) > KTDT_SIZE:
-        raise ValueError(f"KTDT overflow: {len(body)} > {KTDT_SIZE}")
-    return body + b"\x00" * (KTDT_SIZE - len(body))
+        off = i * entry_size
+        path = paths[i]
+        if len(path) > 256:
+            path = path[:255] + b"\x00"
+        buf[off : off + len(path)] = path
+        buf[off + 256 : off + 256 + len(PARAM_SUFFIX)] = PARAM_SUFFIX
+    return bytes(buf)
 
 
 def _write_stk(out_path: Path, ktdt_body: bytes, wavs: list[bytes]):
     with open(out_path, 'wb') as f:
-        # Header (40 bytes)
+        # Header (32 bytes total before KTDT body)
         f.write(MAGIC)
-        f.write(b"\x00" * 8)
+        f.write(b"\x00" * 4)
+        f.write(struct.pack('<I', 0x10))  # Offset to KTDT tag?
         f.write(KTDT_TAG)
         f.write(struct.pack('<I', KTDT_SIZE))
         f.write(b"\x00" * 4)  # reserved
         f.write(struct.pack('<I', 1))  # version/marker
-        # KTDT body
+        # KTDT body starts at 0x20
         f.write(ktdt_body)
         # Append WAVs
         for w in wavs:

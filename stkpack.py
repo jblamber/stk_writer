@@ -33,7 +33,7 @@ def _read_wav_bytes(path: Path) -> bytes:
 
 def _to_pcm16_stereo_48k(raw: bytes) -> bytes:
     """Convert a WAV file (bytes) to 48kHz, 16-bit PCM stereo WAV bytes.
-    Uses wave+audioop from the stdlib; handles PCM formats. Float/encoded ADPCM not supported.
+    Uses wave+audioop from the stdlib; handles PCM formats.
     """
     with wave.open(io.BytesIO(raw), 'rb') as r:
         nch = r.getnchannels()
@@ -45,21 +45,16 @@ def _to_pcm16_stereo_48k(raw: bytes) -> bytes:
             raise ValueError(f"Unsupported compressed WAV (comptype={comp})")
         frames = r.readframes(nframes)
 
-    # Convert bit depth to 16-bit little-endian linear PCM if needed
+    # Convert bit depth to 16-bit linear PCM if needed
     if sampwidth != TARGET_WIDTH:
         frames = audioop.lin2lin(frames, sampwidth, TARGET_WIDTH)
         sampwidth = TARGET_WIDTH
 
     # Convert channels to stereo
     if nch == 1:
-        # duplicate mono to stereo
         frames = audioop.tostereo(frames, sampwidth, 1, 1)
         nch = 2
-    elif nch == 2:
-        pass
-    else:
-        # mixdown >2 channels to stereo (average L/R pairs)
-        # First reduce to mono, then to stereo by duplication
+    elif nch > 2:
         frames = audioop.tomono(frames, sampwidth, 0.5, 0.5)
         frames = audioop.tostereo(frames, sampwidth, 1, 1)
         nch = 2
@@ -67,12 +62,10 @@ def _to_pcm16_stereo_48k(raw: bytes) -> bytes:
     # Resample to 48kHz
     if fr != TARGET_RATE:
         # audioop.ratecv returns (converted_data, state)
-        converted, _ = audioop.ratecv(frames, sampwidth, nch, fr, TARGET_RATE, None)
-        frames = converted
+        frames, _ = audioop.ratecv(frames, sampwidth, nch, fr, TARGET_RATE, None)
         fr = TARGET_RATE
 
-    # Ensure even frame count alignment
-    # Build a new WAV container
+    # Build a new standard WAV container
     out_b = io.BytesIO()
     with wave.open(out_b, 'wb') as w:
         w.setnchannels(TARGET_CHANNELS)

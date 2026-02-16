@@ -26,6 +26,15 @@ PARAM_SUFFIX = (b"\x64\x00\x00\x7F"  # level=100, pitch=0, pan/vel=127
                 + struct.pack('<I', 0x40)
                 + b"\x00" * 4)  # Total 24 bytes
 
+# Observed extra chunks in working kits: cue (28 bytes) + LIST (30 bytes)
+# Total 36 + 38 = 74 bytes of extra header before 'data' chunk
+CUE_CHUNK = (b"cue \x1c\x00\x00\x00"
+             + b"\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00"
+             + b"data\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+LIST_CHUNK = (b"LIST\x1e\x00\x00\x00"
+              + b"adtllabl\x12\x00\x00\x00\x01\x00\x00\x00"
+              + b"Tempo: 000.0\x00\x00")
+
 
 def _read_wav_bytes(path: Path) -> bytes:
     return path.read_bytes()
@@ -72,7 +81,24 @@ def _to_pcm16_stereo_48k(raw: bytes) -> bytes:
         w.setsampwidth(TARGET_WIDTH)
         w.setframerate(TARGET_RATE)
         w.writeframes(frames)
-    return out_b.getvalue()
+    
+    # Mirror structure of working kits: fmt, cue, LIST, then data.
+    # We must insert the extra chunks and update the RIFF size.
+    orig = out_b.getvalue()
+    # RIFF header (12) + fmt chunk (16+8) + data tag/size (8) + audio data
+    fmt_chunk = orig[12:12+24]
+    data_tag_size = orig[12+24:12+24+8]
+    audio_data = orig[12+24+8:]
+    
+    new_riff_size = 4 + len(fmt_chunk) + len(CUE_CHUNK) + len(LIST_CHUNK) + len(data_tag_size) + len(audio_data)
+    
+    final = (b"RIFF" + struct.pack('<I', new_riff_size) + b"WAVE"
+             + fmt_chunk
+             + CUE_CHUNK
+             + LIST_CHUNK
+             + data_tag_size
+             + audio_data)
+    return final
 
 
 def _pick_samples(folder: Path, files: list[Path]) -> tuple[list[bytes], list[str]]:

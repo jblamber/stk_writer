@@ -19,12 +19,12 @@ TARGET_WIDTH = 2  # bytes -> 16-bit
 TARGET_CHANNELS = 2  # stereo
 
 # A conservative parameter prefix seen in the provided kits
-#  - 0x64,0x00,0x00,0x7F, then zeros, then a DWORD 0x00000040, then zeros
-# In the actual file, these follow the path in each 281-byte entry.
-PARAM_SUFFIX = (b"\x64\x00\x00\x7F"  # level=?, pitch=?, pan/vel=?
+#  - 0x64 (Level=100), 0x00, 0x00, 0x7F, then zeros, then a DWORD 0x00000040, then zeros
+# In the actual file, these follow the path in each 280-byte entry.
+PARAM_SUFFIX = (b"\x64\x00\x00\x7F"  # level=100, pitch=0, pan/vel=127
                 + b"\x00" * 12
                 + struct.pack('<I', 0x40)
-                + b"\x00" * 8)
+                + b"\x00" * 4)  # Total 24 bytes
 
 
 def _read_wav_bytes(path: Path) -> bytes:
@@ -132,8 +132,8 @@ def _make_paths(title: str, names: list[str]) -> list[bytes]:
 
 
 def _build_ktdt(paths: list[bytes]) -> bytes:
-    # Each entry is 281 bytes. Path at offset 0, params at offset 256.
-    entry_size = 281
+    # Each entry is 280 bytes. Path at offset 0, params at offset 256.
+    entry_size = 280
     buf = bytearray(KTDT_SIZE)
     for i in range(15):
         off = i * entry_size

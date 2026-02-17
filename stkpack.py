@@ -182,8 +182,12 @@ def _write_stk(out_path: Path, ktdt_body: bytes, wavs: list[bytes]):
         f.write(struct.pack('<I', 1))  # version/marker
         # KTDT body starts at 0x20
         f.write(ktdt_body)
-        # Append WAVs
-        for w in wavs:
+        # Append WAVs with ISDT prefix
+        for i, w in enumerate(wavs):
+            # ISDT block: 2 null, "ISDT", size (4), index (4), unknown constant (4)
+            # size is the total RIFF size including the 8-byte header
+            isdt = b"\x00" + b"ISDT" + struct.pack('<I', len(w)) + struct.pack('<I', i) + b"\x01\x00\x00\x00"
+            f.write(isdt)
             f.write(w)
 
 

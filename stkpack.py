@@ -9,6 +9,7 @@ from pathlib import Path
 import wave
 import audioop
 
+#4228
 KTDT_SIZE = 0x1084
 MAGIC = b"VDK0PR \x00"
 KTDT_TAG = b"KTDT"
@@ -34,6 +35,10 @@ CUE_CHUNK = (b"cue \x1c\x00\x00\x00"
 LIST_CHUNK = (b"LIST\x1e\x00\x00\x00"
               + b"adtllabl\x12\x00\x00\x00\x01\x00\x00\x00"
               + b"Tempo: 000.0\x00\x00")
+
+# 12-byte footer at end of KTDT (at offset 4200)
+# Contains 0x64 (100) at offset 8, likely a volume parameter.
+KTDT_FOOTER = b"\x00" * 8 + b"\x64\x00\x00\x00"
 
 
 def _read_wav_bytes(path: Path) -> bytes:
@@ -156,8 +161,12 @@ def _make_paths(title: str, names: list[str]) -> list[bytes]:
     return paths
 
 
-def _build_ktdt(paths: list[bytes]) -> bytes:
+def _build_ktdt(paths: list[bytes], first_wav_len: int) -> bytes:
     # Each entry is 280 bytes. Path at offset 0, params at offset 256.
+    # Total 15 * 280 = 4200.
+    # KTDT_SIZE is 4228 (0x1084).
+    # Footer (12 bytes) starts at 4200.
+    # First ISDT (16 bytes) starts at 4212.
     entry_size = 280
     buf = bytearray(KTDT_SIZE)
     for i in range(15):
@@ -167,6 +176,15 @@ def _build_ktdt(paths: list[bytes]) -> bytes:
             path = path[:255] + b"\x00"
         buf[off : off + len(path)] = path
         buf[off + 256 : off + 256 + len(PARAM_SUFFIX)] = PARAM_SUFFIX
+    
+    # Add footer
+    buf[4200 : 4200 + 12] = KTDT_FOOTER
+    
+    # Add first ISDT (index 0)
+    # ISDT block: "ISDT", size (4), index (4), unknown constant (4)
+    isdt = b"ISDT" + struct.pack('<I', first_wav_len) + struct.pack('<I', 0) + b"\x01\x00\x00\x00"
+    buf[4212 : 4212 + 16] = isdt
+    
     return bytes(buf)
 
 
@@ -181,15 +199,26 @@ def _write_stk(out_path: Path, ktdt_body: bytes, wavs: list[bytes]):
         f.write(b"\x00" * 4)  # reserved
         f.write(struct.pack('<I', 1))  # version/marker
         # KTDT body starts at 0x20
+        # It now includes the 12-byte footer and the first ISDT block.
         f.write(ktdt_body)
+        
         # Append WAVs with ISDT prefix
+        # First sample's ISDT is already in ktdt_body.
         for i, w in enumerate(wavs):
-            # ISDT block: 2 null, "ISDT", size (4), index (4), unknown constant (4)
-            # size is the total RIFF size including the 8-byte header
-            isdt = b"\x00" + b"ISDT" + struct.pack('<I', len(w)) + struct.pack('<I', i) + b"\x01\x00\x00\x00"
-            f.write(isdt)
-            f.write(w)
-
+            if i == 0:
+                # First sample only writes the WAV data.
+                f.write(w)
+            else:
+                # ISDT block: "ISDT", size (4), index (4), unknown constant (4)
+                isdt = b"\x00ISDT" + struct.pack('<I', len(w)) + struct.pack('<I', i) + b"\x01\x00\x00\x00"
+                f.write(isdt)
+                f.write(w)
+            
+            # Pad each sample to 2-byte boundary if needed? 
+            # Reference kits seem to have a single null byte between samples in some cases.
+            if i != (len(wavs) - 1):
+                f.write(b"\x00")
+        f.write(b"\x00\x00") #two end terminating bytes
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Pack up to 15 WAV files into a .stk kit")
@@ -224,7 +253,8 @@ def main(argv=None):
     # Build KTDT and write file
     paths = _make_paths(args.title, names)
     try:
-        ktdt = _build_ktdt(paths)
+        first_wav_len = len(wavs[0]) if wavs else 0
+        ktdt = _build_ktdt(paths, first_wav_len)
     except Exception as e:
         raise SystemExit(f"Error building KTDT: {e}")
 

@@ -3,7 +3,7 @@ A utility to pack and write stk files for use in Sonicware devices
 
 ## Features
 - Packs up to 15 WAV files into a single `.stk` kit.
-- Automatically converts audio to the required format (48kHz, 16-bit PCM, Stereo).
+- Automatically converts audio to the required format (48kHz, 16-bit PCM, Stereo or Mono).
 - Sets internal paths to `SmplTrek/Pool/Audio/Drum/` for compatibility with SmplTrek.
 
 ## Usage
@@ -33,6 +33,8 @@ python3 Pool/stkpack.py --title "MyKit" sample1.wav sample2.wav sample3.wav
 - `--folder`: Path to a folder containing WAV files. The first 15 files (alphabetically) will be selected.
 - `files`: Positional arguments for individual WAV files (up to 15).
 - `-o`, `--output`: (Optional) The output path for the `.stk` file. Defaults to `{timestamp}_kit.stk`.
+- `--stereo`: (Optional) Convert audio to stereo (default).
+- `--mono`: (Optional) Convert audio to mono.
 
 ### Sample Invocations
 

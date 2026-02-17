@@ -16,7 +16,7 @@ HEADER_RESERVED = b"\x00" * 4
 
 TARGET_RATE = 48000
 TARGET_WIDTH = 2  # bytes -> 16-bit
-TARGET_CHANNELS = 2  # stereo
+TARGET_CHANNELS = 1  # mono
 
 # A conservative parameter prefix seen in the provided kits
 #  - 0x64 (Level=100), 0x00, 0x00, 0x7F, then zeros, then a DWORD 0x00000040, then zeros
@@ -40,8 +40,8 @@ def _read_wav_bytes(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _to_pcm16_stereo_48k(raw: bytes) -> bytes:
-    """Convert a WAV file (bytes) to 48kHz, 16-bit PCM stereo WAV bytes.
+def _to_pcm16_48k(raw: bytes, target_channels: int) -> bytes:
+    """Convert a WAV file (bytes) to 48kHz, 16-bit PCM WAV bytes.
     Uses wave+audioop from the stdlib; handles PCM formats.
     """
     with wave.open(io.BytesIO(raw), 'rb') as r:
@@ -59,14 +59,20 @@ def _to_pcm16_stereo_48k(raw: bytes) -> bytes:
         frames = audioop.lin2lin(frames, sampwidth, TARGET_WIDTH)
         sampwidth = TARGET_WIDTH
 
-    # Convert channels to stereo
-    if nch == 1:
-        frames = audioop.tostereo(frames, sampwidth, 1, 1)
-        nch = 2
-    elif nch > 2:
-        frames = audioop.tomono(frames, sampwidth, 0.5, 0.5)
-        frames = audioop.tostereo(frames, sampwidth, 1, 1)
-        nch = 2
+    # Convert channels
+    if nch != target_channels:
+        if target_channels == 1:
+            # Downmix to mono
+            frames = audioop.tomono(frames, sampwidth, 1/nch, 1/nch)
+        elif target_channels == 2 and nch == 1:
+            # Expand mono to stereo
+            frames = audioop.tostereo(frames, sampwidth, 1, 1)
+        else:
+            # Multi-channel to stereo: downmix to mono first, then to stereo
+            # (or we could just use tomono and then tostereo)
+            mono_frames = audioop.tomono(frames, sampwidth, 1/nch, 1/nch)
+            frames = audioop.tostereo(mono_frames, sampwidth, 1, 1)
+        nch = target_channels
 
     # Resample to 48kHz
     if fr != TARGET_RATE:
@@ -77,7 +83,7 @@ def _to_pcm16_stereo_48k(raw: bytes) -> bytes:
     # Build a new standard WAV container
     out_b = io.BytesIO()
     with wave.open(out_b, 'wb') as w:
-        w.setnchannels(TARGET_CHANNELS)
+        w.setnchannels(target_channels)
         w.setsampwidth(TARGET_WIDTH)
         w.setframerate(TARGET_RATE)
         w.writeframes(frames)
@@ -101,7 +107,7 @@ def _to_pcm16_stereo_48k(raw: bytes) -> bytes:
     return final
 
 
-def _pick_samples(folder: Path, files: list[Path]) -> tuple[list[bytes], list[str]]:
+def _pick_samples(folder: Path, files: list[Path], target_channels: int) -> tuple[list[bytes], list[str]]:
     """Return list of up to 15 converted WAV bytes and their original stem names."""
     selected: list[Path] = []
 
@@ -118,7 +124,7 @@ def _pick_samples(folder: Path, files: list[Path]) -> tuple[list[bytes], list[st
     names: list[str] = []
     for p in selected:
         b = _read_wav_bytes(p)
-        converted.append(_to_pcm16_stereo_48k(b))
+        converted.append(_to_pcm16_48k(b, target_channels))
         names.append(p.stem)
 
     # If fewer than 15: pad with duplicates of the smallest (by data length)
@@ -187,6 +193,13 @@ def parse_args(argv=None):
     ap.add_argument('files', nargs='*', type=Path, help='Individual WAV files (up to 15)')
     ap.add_argument('--title', required=True, help='Kit title (used in device UI and internal paths)')
     ap.add_argument('-o', '--output', type=Path, help='Output .stk path; defaults to {currentDateTime}_kit.stk')
+    
+    group = ap.add_mutually_exclusive_group()
+    group.add_argument('--stereo', action='store_const', dest='channels', const=2, default=2,
+                       help='Convert to stereo (default)')
+    group.add_argument('--mono', action='store_const', dest='channels', const=1,
+                       help='Convert to mono')
+    
     return ap.parse_args(argv)
 
 
@@ -200,7 +213,7 @@ def main(argv=None):
         raise SystemExit(f"Not a folder: {args.folder}")
 
     try:
-        wavs, names = _pick_samples(args.folder, args.files)
+        wavs, names = _pick_samples(args.folder, args.files, args.channels)
     except Exception as e:
         raise SystemExit(f"Error preparing samples: {e}")
 

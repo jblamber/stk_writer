@@ -182,7 +182,11 @@ def _build_ktdt(paths: list[bytes], first_wav_len: int) -> bytes:
     
     # Add first ISDT (index 0)
     # ISDT block: "ISDT", size (4), index (4), unknown constant (4)
-    isdt = b"ISDT" + struct.pack('<I', first_wav_len) + struct.pack('<I', 0) + b"\x01\x00\x00\x00"
+    # The 'size' field in ISDT appears to be len(wav) + 26 bytes in the reference file?
+    # No, RIFF_SIZE is len(wav) - 8. 
+    # Reference: ISDT_SIZE_FIELD = RIFF_SIZE + 26 = (len(wav) - 8) + 26 = len(wav) + 18.
+    isdt_size = first_wav_len + 18
+    isdt = b"ISDT" + struct.pack('<I', isdt_size) + struct.pack('<I', 0) + b"\x01\x00\x00\x00"
     buf[4212 : 4212 + 16] = isdt
     
     return bytes(buf)
@@ -210,15 +214,18 @@ def _write_stk(out_path: Path, ktdt_body: bytes, wavs: list[bytes]):
                 f.write(w)
             else:
                 # ISDT block: "ISDT", size (4), index (4), unknown constant (4)
-                isdt = b"\x00ISDT" + struct.pack('<I', len(w)) + struct.pack('<I', i) + b"\x01\x00\x00\x00"
+                # Size field is len(wav) + 18.
+                isdt_size = len(w) + 18
+                isdt = b"\x00\x00ISDT" + struct.pack('<I', isdt_size) + struct.pack('<I', i) + b"\x01\x00\x00\x00"
                 f.write(isdt)
                 f.write(w)
             
             # Pad each sample to 2-byte boundary if needed? 
-            # Reference kits seem to have a single null byte between samples in some cases.
-            if i != (len(wavs) - 1):
-                f.write(b"\x00")
-        f.write(b"\x00\x00") #two end terminating bytes
+            # Reference kits seem to have two null bytes between samples (including the one inside ISDT prefix if we consider it part of it).
+            # We already write \x00\x00ISDT for i > 0.
+            # For the very last one, we add \x00\x00.
+            if i == (len(wavs) - 1):
+                f.write(b"\x00\x00")
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Pack up to 15 WAV files into a .stk kit")

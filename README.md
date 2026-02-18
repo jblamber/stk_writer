@@ -1,10 +1,16 @@
-# stk_writer
-A utility to pack and write stk files for use in Sonicware devices
+# STK Writer and Unpacker Tools
+Utilities to pack and write stk files for use in Sonicware devices
+
+## Disclaimer
+This is not any sort of official Sonicware product. This script is provided for
+educational and personal purposes only by a passionate Sonicware fan. Please support
+the Sonicware community by purchasing official devices and/or support the developers
+of Sonicware products.
 
 ## Features
 - Packs up to 15 WAV files into a single `.stk` kit.
 - Automatically converts audio to the required format (48kHz, 16-bit PCM, Stereo or Mono).
-- Sets internal paths to `SmplTrek/Pool/Audio/Drum/` for compatibility with SmplTrek.
+- Sets internal paths to `SmplTrek/Pool/Audio/Drum/` for maximum compatibility with SmplTrek.
 
 ## Usage
 
@@ -19,13 +25,13 @@ No installation is required. Just run the script directly from the repository.
 You can pack WAV files either by specifying a folder or by listing individual files.
 
 ```bash
-python3 Pool/stkpack.py --title "MyKit" --folder /path/to/wavs
+python3 stkpack.py --title "MyKit" --folder /path/to/wavs
 ```
 
 or
 
 ```bash
-python3 Pool/stkpack.py --title "MyKit" sample1.wav sample2.wav sample3.wav
+python3 stkpack.py --title "MyKit" sample1.wav sample2.wav sample3.wav
 ```
 
 #### Arguments
@@ -34,21 +40,31 @@ python3 Pool/stkpack.py --title "MyKit" sample1.wav sample2.wav sample3.wav
 - `files`: Positional arguments for individual WAV files (up to 15).
 - `-o`, `--output`: (Optional) The output path for the `.stk` file. Defaults to `{timestamp}_kit.stk`.
 - `--stereo`: (Optional) Convert audio to stereo (default).
-- `--mono`: (Optional) Convert audio to mono.
+- `--mono`: (Optional) Convert audio to mono, this will save space.
 
 ### Sample Invocations
 
 **Using a folder of samples:**
 ```bash
-python3 Pool/stkpack.py --title "808Kit" --folder "Pool/Audio/Drum/01 - EPS 16+ 29" -o "MyKits/808.stk"
+python3 stkpack.py --title "808Kit" --folder "Audio/Drum/808Samples" -o "MyKits/808.stk"
 ```
 
 **Using specific files:**
 ```bash
-python3 Pool/stkpack.py --title "CustomKit" kick.wav snare.wav hihat.wav -o "Custom.stk"
+python3 stkpack.py --title "CustomKit" kick.wav snare.wav hihat.wav -o "Custom.stk"
 ```
 
 **Minimal invocation (outputs to current directory with timestamp):**
 ```bash
-python3 Pool/stkpack.py --title "MyNewKit" --folder "samples/"
+python3 stkpack.py --title "MyNewKit" --folder "samples/"
 ```
+# Using with the ELZ_1 Play (v2)
+
+Copy the generated `.stk` file to the `ELZ_1 play/Kit/` folder of the SD card. The original audio files do not need to
+be separately copied as they are contained within the `stk` file. Eject the SD card from your PC then
+insert the device into the Play. Power on the Play. The kitss will be found within the "CARD" type of kit selection when
+using the STK_DRUMMER synth type.
+
+## Unpacking
+
+A `.stk` file can be unpacked into its source samples using the included `extract_wavs.py` script.

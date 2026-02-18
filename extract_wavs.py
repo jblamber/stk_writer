@@ -6,7 +6,7 @@ educational and personal purposes only by a passionate Sonicware fan.
 
 This script extracts individual WAV audio files embedded within Sonicware .stk kit files.
 
-STK files are kit files used by Sonicware devices (such as SmplTrek) that contain
+STK files are proprietary kit files used by Sonicware devices (such as SmplTrek) that contain
 multiple audio samples packed together. This utility scans through the STK file structure,
 locates embedded WAV files by their RIFF headers, and extracts them as separate .wav files.
 
@@ -23,10 +23,10 @@ Usage:
 Example:
     python3 extract_wavs.py MyKit.stk extracted_samples/
 """
-
 import struct
 import sys
 from pathlib import Path
+
 
 
 def extract_wavs(stk_path: Path, output_dir: Path):
@@ -35,6 +35,7 @@ def extract_wavs(stk_path: Path, output_dir: Path):
 
     This function reads an STK file, skips the KTDT metadata section, and extracts
     up to 15 embedded WAV files by scanning for RIFF headers and parsing their size fields.
+    Each extracted WAV file is saved with a sequential name (sample_00.wav, sample_01.wav, etc.).
 
     Args:
         stk_path: Path to the input .stk file to extract from

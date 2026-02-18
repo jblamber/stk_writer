@@ -1,10 +1,37 @@
 #!/usr/bin/env python3
+"""
+stkpack.py - STK Kit File Packer for Sonicware Devices
+
+This is not any sort of official Sonicware product. This script is provided for
+educational and personal purposes only by a passionate Sonicware fan.
+
+This utility packs up to 15 WAV audio files into a single .stk kit file
+compatible with Sonicware devices (e.g., SmplTrek or ELZ1 play). The tool automatically
+converts audio samples to the required format: 48kHz sample rate, 16-bit PCM,
+and either mono or stereo channels as specified.
+
+Key features:
+- Accepts WAV files from a folder or as individual file arguments
+- Converts audio to device-compatible format (48kHz, 16-bit PCM)
+- Supports both mono and stereo output modes
+- Pads kits with fewer than 15 samples using duplicates
+- Generates internal file paths compatible with SmplTrek's filesystem structure
+- Creates properly formatted KTDT (kit data) and ISDT (instrument data) chunks
+
+The output .stk file contains:
+- A file header with magic bytes and metadata
+- A KTDT chunk (4228 bytes) with sample paths and parameters
+- Up to 15 embedded WAV files with ISDT prefixes
+- Proper padding and alignment for device compatibility
+
+Usage:
+    python3 stkpack.py --title "MyKit" --folder /path/to/samples
+    python3 stkpack.py --title "MyKit" sample1.wav sample2.wav -o output.stk
+"""
 import argparse
 import datetime as _dt
 import io
-import os
 import struct
-import sys
 from pathlib import Path
 import wave
 import audioop

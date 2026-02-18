@@ -31,7 +31,6 @@ The `.stk` file is a drum kit container format used by the SmplTrek hardware syn
 The `KTDT` body (starting at `0x20`) contains 15 pad entries, a 12-byte footer, and the metadata block for the first sample.
 
 ### 3.1 Pad Entries (15 × 280 bytes = 4200 bytes)
-
 Each entry represents one of the 15 pads (0-14).
 
 | Offset (rel) | Size | Type | Description |
@@ -39,12 +38,12 @@ Each entry represents one of the 15 pads (0-14).
 | `0x000` | 256 | String | Internal Path: `SmplTrek/Pool/Audio/Drum/<KitTitle>/<Sample>.wav\x00` |
 | `0x100` | 1 | int8 | Volume (0-100, default 100) |
 | `0x101` | 1 | int8 | Pan (-64 to 63, default 0=center) |
-| `0x102` | 2 | Zeros | Reserved/Unused |
-| `0x104` | 12 | Zeros | Padding |
+| `0x102` | 1 | Zero | Reserved |
+| `0x103` | 1 | uint8 | Reserved (Value `0x7F` seen in factory kits, important for stability) |
+| `0x104` | 2 | int16_le | Pitch (Cents, range 0 to 1200) - *Clamped to positive due to device crash* |
+| `0x106` | 10 | Zeros | Padding |
 | `0x110` | 1 | uint8 | FX Send (0-127, default 0) |
-| `0x111` | 2 | int16_le | Pitch (cents * 256 / 100, range -1200 to 1200) |
-| `0x113` | 1 | Zeros | Reserved/Unused |
-| `0x114` | 4 | Zeros | Padding |
+| `0x111` | 7 | Zeros | Reserved/Unused |
 
 ### 3.2 KTDT Footer (12 bytes)
 

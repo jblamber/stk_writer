@@ -52,23 +52,98 @@ TARGET_CHANNELS = 1  # mono
 # Layout (24 bytes):
 # 0: Volume (0-100, default 100)
 # 1: Pan (-64 to 63, default 0)
-# 2-15: Zeros
+# 2-3: Reserved (Seen 00 7F in factory kits)
+# 4-5: Pitch (-1200 to 1200 cents, signed 16-bit)
+# 6-15: Zeros (Reserved/Padding)
 # 16: FX Send (0-127, default 0)
-# 17-18: Pitch (-1200 to 1200 cents, stored as cents * 256 / 100, i.e. semitones * 256)
-# 19-23: Zeros
-def _get_param_suffix(volume=100, pitch=0, pan=0, fx_send=0):
+# 17-23: Zeros
+def _get_param_suffix(volume=100, pitch=0, pan=0, fx_send=0, pad_index=None, probe_mode=False):
+    if probe_mode and pad_index is not None:
+        return _get_probe_param_suffix(pad_index)
+        
     # Volume: Byte 0
     # Pan: Byte 1 (-64 to 63)
-    # Byte 2-3: Zeros (historically 0x00 0x7F but 0,0 seems fine for device)
+    # Byte 2-3: Set to 00 7F as observed in factory kits
+    # Byte 4-5: Pitch (as cents, signed short)
+    # TODO: Negative values for pitch cause a crash on some devices. 
+    # Clamping to 0 for now until a fix is found.
+    if pitch < 0:
+        pitch = 0
+        
     # FX Send: Byte 16 (0-127)
-    # Pitch: Bytes 17-18 (Signed 16-bit, in 1/256 semitone units)
-    pitch_units = int(pitch * 256 / 100)
-    # Ensure FX send is correctly packed as a single byte at 16,
-    # and pitch as a signed short at 17-18.
-    return (struct.pack('<bbBB', volume, pan, 0, 0) # bytes 0-3
-            + b"\x00" * 12                          # bytes 4-15
-            + struct.pack('<BhB', fx_send, pitch_units, 0) # bytes 16-19
-            + b"\x00" * 4)                          # bytes 20-23
+    # Pitch: Bytes 17-18 (Signed 16-bit, in 1/256 semitone units) - SmplTrek standard
+    # pitch_units = int(pitch * 256 / 100)
+    
+    buf = bytearray(24)
+    buf[0] = volume & 0xFF
+    buf[1] = pan & 0xFF
+    buf[2] = 0x00
+    buf[3] = 0x7F
+    buf[4:6] = struct.pack('<h', pitch)
+    # buf[6:16] remains 0
+    buf[16] = fx_send & 0xFF
+    # buf[17:24] remains 0
+    
+    return bytes(buf)
+
+def _get_probe_param_suffix(i):
+    """Generate a unique parameter suffix for a probe kit pad to identify pitch location."""
+    # Base: Vol 100, Pan 0, FX 64, All Zeros
+    buf = bytearray(b"\x64\x00" + b"\x00" * 14 + b"\x40" + b"\x00" * 7)
+    
+    # Each pad tests a different hypothesis
+    # Values chosen to be distinct (cents): 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200
+    # Or semitones for coarse: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+    
+    if i == 0:
+        # Pad 0: Control (No pitch)
+        pass
+    elif i == 1:
+        # Pad 1: Offset 2-3, Little Endian, Cents (+100)
+        buf[2:4] = struct.pack('<h', 100)
+    elif i == 2:
+        # Pad 2: Offset 2-3, Big Endian, Cents (+200)
+        buf[2:4] = struct.pack('>h', 200)
+    elif i == 3:
+        # Pad 3: Offset 17-18, Little Endian, Units (+300 cents)
+        buf[17:19] = struct.pack('<h', int(300 * 256 / 100))
+    elif i == 4:
+        # Pad 4: Offset 17-18, Big Endian, Units (+400 cents)
+        buf[17:19] = struct.pack('>h', int(400 * 256 / 100))
+    elif i == 5:
+        # Pad 5: Offset 18-19, Little Endian, Units (+500 cents)
+        buf[18:20] = struct.pack('<h', int(500 * 256 / 100))
+    elif i == 6:
+        # Pad 6: Offset 18-19, Big Endian, Units (+600 cents)
+        buf[18:20] = struct.pack('>h', int(600 * 256 / 100))
+    elif i == 7:
+        # Pad 7: Offset 2, Single Byte, Coarse (+7 semitones)
+        buf[2] = 7 # signed 8-bit is same as unsigned for +7
+    elif i == 8:
+        # Pad 8: Offset 19, Single Byte, Coarse (+8 semitones)
+        buf[19] = 8
+    elif i == 9:
+        # Pad 9: Offset 4-5, Little Endian, Cents (+900)
+        buf[4:6] = struct.pack('<h', 900)
+    elif i == 10:
+        # Pad 10: Offset 8-9, Little Endian, Cents (+1000)
+        buf[8:10] = struct.pack('<h', 1000)
+    elif i == 11:
+        # Pad 11: Offset 12-13, Little Endian, Cents (+1100)
+        buf[12:14] = struct.pack('<h', 1100)
+    elif i == 12:
+        # Pad 12: Offset 17, Coarse (+12 semis), Offset 18, Fine (0)
+        buf[17] = 12
+        buf[18] = 0
+    elif i == 13:
+        # Pad 13: Offset 18, Coarse (+1 semitone), Offset 17, Fine (0)
+        buf[18] = 1
+        buf[17] = 0
+    elif i == 14:
+        # Pad 14: Offset 3, Single Byte, Coarse (+2 semitones)
+        buf[3] = 2
+
+    return bytes(buf)
 
 # 12-byte footer at end of KTDT (at offset 4200)
 
@@ -206,7 +281,7 @@ def _make_paths(title: str, names: list[str]) -> list[bytes]:
     return paths
 
 
-def _build_ktdt(paths: list[bytes], first_wav_len: int, params: list[dict] = None) -> bytes:
+def _build_ktdt(paths: list[bytes], first_wav_len: int, params: list[dict] = None, probe_mode: bool = False) -> bytes:
     # Each entry is 280 bytes. Path at offset 0, params at offset 256.
     # Total 15 * 280 = 4200.
     # KTDT_SIZE is 4228 (0x1084).
@@ -226,7 +301,9 @@ def _build_ktdt(paths: list[bytes], first_wav_len: int, params: list[dict] = Non
             volume=p.get('volume', 100),
             pitch=p.get('pitch', 0),
             pan=p.get('pan', 0),
-            fx_send=p.get('fx_send', 0)
+            fx_send=p.get('fx_send', 0),
+            pad_index=i,
+            probe_mode=probe_mode
         )
         buf[off + 256 : off + 256 + 24] = suffix
     
@@ -309,7 +386,7 @@ def _customize_samples(wavs: list[bytes], names: list[str]) -> list[dict]:
                     print("  Invalid input.")
 
         p['volume'] = get_input("Volume", 'volume', 0, 100)
-        p['pitch'] = get_input("Pitch", 'pitch', -1200, 1200)
+        p['pitch'] = get_input("Pitch", 'pitch', 0, 1200) # Clamped to positive only due to device crash
         p['pan'] = get_input("Pan", 'pan', -64, 63)
         p['fx_send'] = get_input("FX Send", 'fx_send', 0, 127)
         params.append(p)
@@ -366,6 +443,8 @@ def parse_args(argv=None):
                        help='Convert to mono')
     ap.add_argument('--customize', action='store_true',
                        help='Interactively customize sample parameters (Volume, Pitch, Pan, FX Send)')
+    ap.add_argument('--probe-pitch', action='store_true',
+                       help='Generate a diagnostic kit to identify the correct Pitch parameter location')
     
     return ap.parse_args(argv)
 
@@ -396,15 +475,16 @@ def main(argv=None):
     paths = _make_paths(args.title, names)
     try:
         first_wav_len = len(wavs[0]) if wavs else 0
-        ktdt = _build_ktdt(paths, first_wav_len, params=params)
+        ktdt = _build_ktdt(paths, first_wav_len, params=params, probe_mode=args.probe_pitch)
     except Exception as e:
         raise SystemExit(f"Error building KTDT: {e}")
 
     # Output path
     out_path = args.output
     if out_path is None:
+        suffix = "_probe" if args.probe_pitch else "_kit"
         ts = _dt.datetime.now().strftime('%Y%m%d_%H%M%S')
-        out_path = Path(f"{ts}_kit.stk")
+        out_path = Path(f"{ts}{suffix}.stk")
     else:
         if out_path.suffix.lower() != '.stk':
             out_path = out_path.with_suffix('.stk')
@@ -417,7 +497,28 @@ def main(argv=None):
     # Quick sanity: first RIFF should start at 0x10 + 0x1084 = 0x10A4
     size = out_path.stat().st_size
     print(f"Wrote {out_path} ({size} bytes)")
-    print("First RIFF should begin at 0x10A4; KTDT size = 0x1084; entries = 15")
+    
+    if args.probe_pitch:
+        print("\n--- PITCH PROBE LEGEND ---")
+        print("Check each pad on your device. If a pad shows a non-zero pitch, note its value.")
+        print("Pad 00: Control (Should be 0)")
+        print("Pad 01: Testing offset 2-3 (Little Endian, Cents) -> Expected if positive: +100")
+        print("Pad 02: Testing offset 2-3 (Big Endian, Cents) -> Expected if positive: +200")
+        print("Pad 03: Testing offset 17-18 (Little Endian, Units) -> Expected if positive: +3.0 (300 cents)")
+        print("Pad 04: Testing offset 17-18 (Big Endian, Units) -> Expected if positive: +4.0 (400 cents)")
+        print("Pad 05: Testing offset 18-19 (Little Endian, Units) -> Expected if positive: +5.0 (500 cents)")
+        print("Pad 06: Testing offset 18-19 (Big Endian, Units) -> Expected if positive: +6.0 (600 cents)")
+        print("Pad 07: Testing offset 2 (Single Byte, Coarse) -> Expected if positive: +7 semitones")
+        print("Pad 08: Testing offset 19 (Single Byte, Coarse) -> Expected if positive: +8 semitones")
+        print("Pad 09: Testing offset 4-5 (Little Endian, Cents) -> Expected if positive: +900")
+        print("Pad 10: Testing offset 8-9 (Little Endian, Cents) -> Expected if positive: +1000")
+        print("Pad 11: Testing offset 12-13 (Little Endian, Cents) -> Expected if positive: +1100")
+        print("Pad 12: Testing offset 17 (Coarse/Byte) -> Expected if positive: +12 semitones")
+        print("Pad 13: Testing offset 18 (Coarse/Byte) -> Expected if positive: +1 semitone")
+        print("Pad 14: Testing offset 3 (Single Byte, Coarse) -> Expected if positive: +2 semitones")
+        print("--------------------------\n")
+    else:
+        print("First RIFF should begin at 0x10A4; KTDT size = 0x1084; entries = 15")
 
 
 if __name__ == '__main__':

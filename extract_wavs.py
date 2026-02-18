@@ -1,10 +1,48 @@
+"""
+STK WAV Extractor
+
+This is not any sort of official Sonicware product. This script is provided for
+educational and personal purposes only by a passionate Sonicware fan.
+
+This script extracts individual WAV audio files embedded within Sonicware .stk kit files.
+
+STK files are kit files used by Sonicware devices (such as SmplTrek) that contain
+multiple audio samples packed together. This utility scans through the STK file structure,
+locates embedded WAV files by their RIFF headers, and extracts them as separate .wav files.
+
+The script handles:
+- Reading binary STK file data
+- Skipping the KTDT header/metadata section (first 0x10A4 bytes)
+- Scanning for RIFF headers to identify WAV files
+- Extracting up to 15 WAV samples with proper size calculation
+- Saving extracted samples with sequential naming (sample_00.wav, sample_01.wav, etc.)
+
+Usage:
+    python3 extract_wavs.py <input.stk> <output_dir>
+
+Example:
+    python3 extract_wavs.py MyKit.stk extracted_samples/
+"""
+
 import struct
 import sys
 from pathlib import Path
-import io
-import wave
+
 
 def extract_wavs(stk_path: Path, output_dir: Path):
+    """
+    Extract WAV files from a Sonicware STK kit file.
+
+    This function reads an STK file, skips the KTDT metadata section, and extracts
+    up to 15 embedded WAV files by scanning for RIFF headers and parsing their size fields.
+
+    Args:
+        stk_path: Path to the input .stk file to extract from
+        output_dir: Path to the directory where extracted WAV files will be saved
+
+    Returns:
+        None. Prints extraction progress to stdout and writes WAV files to output_dir.
+    """
     if not stk_path.exists():
         print(f"File not found: {stk_path}")
         return
@@ -14,7 +52,8 @@ def extract_wavs(stk_path: Path, output_dir: Path):
     with open(stk_path, 'rb') as f:
         data = f.read()
 
-    # KTDT body ends at 0x10A4
+    # KTDT body ends at 0x10A4 (4260 bytes) - this is the metadata/header section
+    # containing kit information. The actual audio data follows after this offset.
     audio_data = data[0x10A4:]
     
     pos = 0

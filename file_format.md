@@ -37,9 +37,13 @@ Each entry represents one of the 15 pads (0-14).
 | Offset (rel) | Size | Type | Description |
 | :--- | :--- | :--- | :--- |
 | `0x000` | 256 | String | Internal Path: `SmplTrek/Pool/Audio/Drum/<KitTitle>/<Sample>.wav\x00` |
-| `0x100` | 4 | Bytes | `0x64 0x00 0x00 0x7F` (Level=100, Pitch=0, Pan/Vel=127) |
+| `0x100` | 1 | int8 | Volume (0-100, default 100) |
+| `0x101` | 1 | int8 | Pan (-64 to 63, default 0=center) |
+| `0x102` | 2 | Zeros | Reserved/Unused |
 | `0x104` | 12 | Zeros | Padding |
-| `0x110` | 4 | uint32_le | `0x00000040` (Unknown constant) |
+| `0x110` | 1 | uint8 | FX Send (0-127, default 0) |
+| `0x111` | 2 | int16_le | Pitch (cents * 256 / 100, range -1200 to 1200) |
+| `0x113` | 1 | Zeros | Reserved/Unused |
 | `0x114` | 4 | Zeros | Padding |
 
 ### 3.2 KTDT Footer (12 bytes)

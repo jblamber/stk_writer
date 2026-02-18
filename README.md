@@ -41,13 +41,18 @@ python3 stkpack.py --title "MyKit" sample1.wav sample2.wav sample3.wav
 - `-o`, `--output`: (Optional) The output path for the `.stk` file. Defaults to `{timestamp}_kit.stk`.
 - `--stereo`: (Optional) Convert audio to stereo (default).
 - `--mono`: (Optional) Convert audio to mono, this will save space.
+- `--customize`: (Optional) Interactively adjust Volume, Pitch, Pan, and FX Send for each sample.
 
 ### Sample Invocations
 
-**Using a folder of samples:**
+**Using a folder of samples with interactive customization:**
 ```bash
-python3 stkpack.py --title "808Kit" --folder "Audio/Drum/808Samples" -o "MyKits/808.stk"
+python3 stkpack.py --title "MyKit" --folder "samples/" --customize
 ```
+During customization, you can:
+- Press **Enter** to accept the default value.
+- Type a value and press **Enter** to change it.
+- Press **p** then **Enter** to hear a preview of the current sample.
 
 **Using specific files:**
 ```bash

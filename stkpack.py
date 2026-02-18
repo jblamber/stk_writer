@@ -32,6 +32,8 @@ import argparse
 import datetime as _dt
 import io
 import struct
+import subprocess
+import tempfile
 from pathlib import Path
 import wave
 import audioop
@@ -46,13 +48,29 @@ TARGET_RATE = 48000
 TARGET_WIDTH = 2  # bytes -> 16-bit
 TARGET_CHANNELS = 1  # mono
 
-# A conservative parameter prefix seen in the provided kits
-#  - 0x64 (Level=100), 0x00, 0x00, 0x7F, then zeros, then a DWORD 0x00000040, then zeros
-# In the actual file, these follow the path in each 280-byte entry.
-PARAM_SUFFIX = (b"\x64\x00\x00\x7F"  # level=100, pitch=0, pan/vel=127
-                + b"\x00" * 12
-                + struct.pack('<I', 0x40)
-                + b"\x00" * 4)  # Total 24 bytes
+# Standard parameter suffix for each 280-byte entry.
+# Layout (24 bytes):
+# 0: Volume (0-100, default 100)
+# 1: Pan (-64 to 63, default 0)
+# 2-15: Zeros
+# 16: FX Send (0-127, default 0)
+# 17-18: Pitch (-1200 to 1200 cents, stored as cents * 256 / 100, i.e. semitones * 256)
+# 19-23: Zeros
+def _get_param_suffix(volume=100, pitch=0, pan=0, fx_send=0):
+    # Volume: Byte 0
+    # Pan: Byte 1 (-64 to 63)
+    # Byte 2-3: Zeros (historically 0x00 0x7F but 0,0 seems fine for device)
+    # FX Send: Byte 16 (0-127)
+    # Pitch: Bytes 17-18 (Signed 16-bit, in 1/256 semitone units)
+    pitch_units = int(pitch * 256 / 100)
+    # Ensure FX send is correctly packed as a single byte at 16,
+    # and pitch as a signed short at 17-18.
+    return (struct.pack('<bbBB', volume, pan, 0, 0) # bytes 0-3
+            + b"\x00" * 12                          # bytes 4-15
+            + struct.pack('<BhB', fx_send, pitch_units, 0) # bytes 16-19
+            + b"\x00" * 4)                          # bytes 20-23
+
+# 12-byte footer at end of KTDT (at offset 4200)
 
 # Observed extra chunks in working kits: cue (28 bytes) + LIST (30 bytes)
 # Total 36 + 38 = 74 bytes of extra header before 'data' chunk
@@ -188,7 +206,7 @@ def _make_paths(title: str, names: list[str]) -> list[bytes]:
     return paths
 
 
-def _build_ktdt(paths: list[bytes], first_wav_len: int) -> bytes:
+def _build_ktdt(paths: list[bytes], first_wav_len: int, params: list[dict] = None) -> bytes:
     # Each entry is 280 bytes. Path at offset 0, params at offset 256.
     # Total 15 * 280 = 4200.
     # KTDT_SIZE is 4228 (0x1084).
@@ -202,7 +220,15 @@ def _build_ktdt(paths: list[bytes], first_wav_len: int) -> bytes:
         if len(path) > 256:
             path = path[:255] + b"\x00"
         buf[off : off + len(path)] = path
-        buf[off + 256 : off + 256 + len(PARAM_SUFFIX)] = PARAM_SUFFIX
+        
+        p = params[i] if params and i < len(params) else {}
+        suffix = _get_param_suffix(
+            volume=p.get('volume', 100),
+            pitch=p.get('pitch', 0),
+            pan=p.get('pan', 0),
+            fx_send=p.get('fx_send', 0)
+        )
+        buf[off + 256 : off + 256 + 24] = suffix
     
     # Add footer
     buf[4200 : 4200 + 12] = KTDT_FOOTER
@@ -217,6 +243,78 @@ def _build_ktdt(paths: list[bytes], first_wav_len: int) -> bytes:
     buf[4212 : 4212 + 16] = isdt
     
     return bytes(buf)
+
+
+def _prompt_int(prompt, default, min_val, max_val):
+    while True:
+        val = input(f"{prompt} (default {default}, {min_val} to {max_val}): ").strip()
+        if not val:
+            return default
+        try:
+            i = int(val)
+            if min_val <= i <= max_val:
+                return i
+            print(f"Value must be between {min_val} and {max_val}.")
+        except ValueError:
+            print("Invalid input. Please enter an integer.")
+
+def _preview_audio(wav_bytes: bytes):
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+            tf.write(wav_bytes)
+            tf_path = tf.name
+        
+        # Determine player
+        players = ["afplay", "aplay", "play"]
+        played = False
+        for p in players:
+            try:
+                subprocess.run([p, tf_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                played = True
+                break
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                continue
+        if not played:
+            print("Could not find a working audio player (afplay, aplay, or play).")
+        
+        Path(tf_path).unlink(missing_ok=True)
+    except Exception as e:
+        print(f"Preview error: {e}")
+
+def _customize_samples(wavs: list[bytes], names: list[str]) -> list[dict]:
+    params = []
+    print("\n--- Sample Customization ---")
+    print("For each sample, enter values or press Enter for default.")
+    print("Press 'p' + Enter at any prompt to preview the sound.")
+    
+    for i, (w, name) in enumerate(zip(wavs, names)):
+        print(f"\nSample {i+1}/15: {name}")
+        
+        p = {'volume': 100, 'pitch': 0, 'pan': 0, 'fx_send': 0}
+        
+        def get_input(prompt, key, min_v, max_v):
+            while True:
+                val = input(f"  {prompt} (default {p[key]}, {min_v} to {max_v}, 'p' to preview): ").strip().lower()
+                if val == 'p':
+                    _preview_audio(w)
+                    continue
+                if not val:
+                    return p[key]
+                try:
+                    i_val = int(val)
+                    if min_v <= i_val <= max_v:
+                        return i_val
+                    print(f"  Value must be between {min_v} and {max_v}.")
+                except ValueError:
+                    print("  Invalid input.")
+
+        p['volume'] = get_input("Volume", 'volume', 0, 100)
+        p['pitch'] = get_input("Pitch", 'pitch', -1200, 1200)
+        p['pan'] = get_input("Pan", 'pan', -64, 63)
+        p['fx_send'] = get_input("FX Send", 'fx_send', 0, 127)
+        params.append(p)
+        
+    return params
 
 
 def _write_stk(out_path: Path, ktdt_body: bytes, wavs: list[bytes]):
@@ -266,6 +364,8 @@ def parse_args(argv=None):
                        help='Convert to stereo (default)')
     group.add_argument('--mono', action='store_const', dest='channels', const=1,
                        help='Convert to mono')
+    ap.add_argument('--customize', action='store_true',
+                       help='Interactively customize sample parameters (Volume, Pitch, Pan, FX Send)')
     
     return ap.parse_args(argv)
 
@@ -284,11 +384,19 @@ def main(argv=None):
     except Exception as e:
         raise SystemExit(f"Error preparing samples: {e}")
 
+    # Interactive customization
+    params = None
+    if args.customize:
+        try:
+            params = _customize_samples(wavs, names)
+        except (EOFError, KeyboardInterrupt):
+            raise SystemExit("\nCustomization cancelled.")
+
     # Build KTDT and write file
     paths = _make_paths(args.title, names)
     try:
         first_wav_len = len(wavs[0]) if wavs else 0
-        ktdt = _build_ktdt(paths, first_wav_len)
+        ktdt = _build_ktdt(paths, first_wav_len, params=params)
     except Exception as e:
         raise SystemExit(f"Error building KTDT: {e}")
 

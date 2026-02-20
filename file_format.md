@@ -39,9 +39,9 @@ Each entry represents one of the 15 pads (0-14).
 | `0x100` | 1 | int8 | Volume (0-100, default 100) |
 | `0x101` | 1 | int8 | Pan (-64 to 63, default 0=center) |
 | `0x102` | 1 | Zero | Reserved |
-| `0x103` | 1 | uint8 | Reserved (Value `0x7F` seen in factory kits, important for stability) |
-| `0x104` | 2 | int16_le | Pitch (Cents, range 0 to 1200) - *Clamped to positive due to device crash* |
-| `0x106` | 10 | Zeros | Padding |
+| `0x103` | 1 | uint8 | Reserved (Value `0x7F` seen in factory kits, maybe important for stability) |
+| `0x104` | 4 | int32_le | Pitch (Cents, range -1200 to 1200) |
+| `0x108` | 8 | Zeros | Padding |
 | `0x110` | 1 | uint8 | FX Send (0-127, default 0) |
 | `0x111` | 7 | Zeros | Reserved/Unused |
 

@@ -64,23 +64,17 @@ def _get_param_suffix(volume=100, pitch=0, pan=0, fx_send=0, pad_index=None, pro
     # Volume: Byte 0
     # Pan: Byte 1 (-64 to 63)
     # Byte 2-3: Set to 00 7F as observed in factory kits
-    # Byte 4-5: Pitch (as cents, signed short)
-    # TODO: Negative values for pitch cause a crash on some devices. 
-    # Clamping to 0 for now until a fix is found.
-    if pitch < 0:
-        pitch = 0
-        
+    # Byte 4-7: Pitch (as cents, signed 32-bit integer)
+    
     # FX Send: Byte 16 (0-127)
-    # Pitch: Bytes 17-18 (Signed 16-bit, in 1/256 semitone units) - SmplTrek standard
-    # pitch_units = int(pitch * 256 / 100)
     
     buf = bytearray(24)
     buf[0] = volume & 0xFF
     buf[1] = pan & 0xFF
     buf[2] = 0x00
     buf[3] = 0x7F
-    buf[4:6] = struct.pack('<h', pitch)
-    # buf[6:16] remains 0
+    buf[4:8] = struct.pack('<i', pitch)
+    # buf[8:16] remains 0
     buf[16] = fx_send & 0xFF
     # buf[17:24] remains 0
     
@@ -386,7 +380,7 @@ def _customize_samples(wavs: list[bytes], names: list[str]) -> list[dict]:
                     print("  Invalid input.")
 
         p['volume'] = get_input("Volume", 'volume', 0, 100)
-        p['pitch'] = get_input("Pitch", 'pitch', 0, 1200) # Clamped to positive only due to device crash
+        p['pitch'] = get_input("Pitch", 'pitch', -1200, 1200)
         p['pan'] = get_input("Pan", 'pan', -64, 63)
         p['fx_send'] = get_input("FX Send", 'fx_send', 0, 127)
         params.append(p)
